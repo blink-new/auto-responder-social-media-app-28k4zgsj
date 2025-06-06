@@ -1,9 +1,12 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, ActivityIndicator } from 'react-native';
 import Animated, { FadeInDown, FadeInLeft } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Instagram, MessageCircle, Video, Flame, Heart, Share, Users, Zap } from 'lucide-react-native';
-import { useState } from 'react';
+import { Instagram, MessageCircle, Video, Flame, Heart, Share, Users, Zap, Link } from 'lucide-react-native';
+import { useState, useEffect } from 'react';
 import { ExclusionModal } from '@/components/ExclusionModal';
+import { supabase, supaUrl } from '@/lib/supabase';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 
 export default function Social() {
   const [platforms, setPlatforms] = useState([
@@ -151,6 +154,58 @@ export default function Social() {
     }
   };
 
+  useEffect(() => {
+    const handleDeepLink = (event: { url: string }) => {
+      const { path, queryParams } = Linking.parse(event.url);
+      console.log("Deep link received:", event.url);
+      console.log("Path:", path, "Query Params:", queryParams);
+
+      if (path === 'social' && queryParams) {
+        if (queryParams.instagram_auth_status === 'success' && queryParams.platform_id === 'instagram') {
+          Alert.alert("Succès", "Instagram connecté avec succès !");
+          setPlatforms(prev =>
+            prev.map(p =>
+              p.id === 'instagram' ? { ...p, connected: true } : p
+            )
+          );
+          // Here you would typically store the long-lived token securely
+          // For now, we just update the UI state.
+        } else if (queryParams.instagram_auth_status === 'error') {
+          Alert.alert("Erreur de Connexion Instagram", queryParams.error_message || "Une erreur inconnue s'est produite.");
+        }
+      }
+    };
+
+    // Listen for incoming deep links
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+
+    // Check initial URL
+    Linking.getInitialURL().then(url => {
+      if (url) {
+        handleDeepLink({ url });
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const handleConnectInstagram = async () => {
+    if (!supaUrl) {
+      Alert.alert("Erreur de Configuration", "L'URL de Supabase n'est pas configurée.");
+      return;
+    }
+    const supabaseFunctionUrl = `${supaUrl}/functions/v1/instagram-oauth-start`;
+    try {
+      await WebBrowser.openAuthSessionAsync(supabaseFunctionUrl, Linking.createURL('/social'));
+      // The user will be redirected back to the app via deep linking handled by the useEffect
+    } catch (error) {
+      Alert.alert("Erreur", "Impossible d'ouvrir la page de connexion Instagram.");
+      console.error("Error opening Instagram auth session:", error);
+    }
+  };
+
   return (
     <LinearGradient
       colors={['#FF6B6B', '#4ECDC4']}
@@ -286,14 +341,16 @@ export default function Social() {
                 </>
               )}
 
-              {!platform.connected && (
+              {!platform.connected && platform.id === 'instagram' && (
                 <TouchableOpacity
-                  style={[styles.connectButton, { backgroundColor: platform.color }]}
-                  onPress={() => togglePlatform(platform.id)}
+                  style={[styles.connectButton, { backgroundColor: platform.color, marginTop: 10 }]}
+                  onPress={handleConnectInstagram}
                 >
-                  <Text style={styles.connectButtonText}>Se connecter</Text>
+                  <Link size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.connectButtonText}>Connecter Instagram</Text>
                 </TouchableOpacity>
               )}
+              {/* ... existing code for flames button ... */}
             </Animated.View>
           ))}
         </Animated.View>
